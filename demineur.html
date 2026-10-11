@@ -129,9 +129,19 @@
     color: #cfcabc;
     text-align: center;
   }
+  #fireworks {
+    position: fixed;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    pointer-events: none;
+    z-index: 999;
+  }
 </style>
 </head>
 <body>
+
+<canvas id="fireworks"></canvas>
 
 <h1>DÉMINEUR</h1>
 <div class="subtitle">Clic gauche pour révéler, clic droit pour marquer un drapeau</div>
@@ -246,6 +256,104 @@ function setMsg(text) {
   document.getElementById('msg').textContent = text;
 }
 
+let fireworksCanvas = null;
+let fireworksCtx = null;
+let fireworksAnimId = null;
+let fireworksParticles = [];
+let fireworksActive = false;
+let fireworksLaunchInterval = null;
+let fireworksStopTimeout = null;
+
+function initFireworksCanvas() {
+  fireworksCanvas = document.getElementById('fireworks');
+  fireworksCtx = fireworksCanvas.getContext('2d');
+  resizeFireworksCanvas();
+  window.addEventListener('resize', resizeFireworksCanvas);
+}
+
+function resizeFireworksCanvas() {
+  if (!fireworksCanvas) return;
+  fireworksCanvas.width = window.innerWidth;
+  fireworksCanvas.height = window.innerHeight;
+}
+
+function createBurst(x, y) {
+  const colors = ['#ff6b6b', '#ffd166', '#6fcf97', '#56ccf2', '#bb6bd9', '#f2c94c', '#4fd1c5', '#d4af37'];
+  const color = colors[Math.floor(Math.random() * colors.length)];
+  const count = 40 + Math.floor(Math.random() * 20);
+  for (let i = 0; i < count; i++) {
+    const angle = (Math.PI * 2 * i) / count + Math.random() * 0.3;
+    const speed = 2 + Math.random() * 3.5;
+    fireworksParticles.push({
+      x, y,
+      vx: Math.cos(angle) * speed,
+      vy: Math.sin(angle) * speed,
+      alpha: 1,
+      color,
+      size: 2 + Math.random() * 2,
+    });
+  }
+}
+
+function fireworksTick() {
+  if (!fireworksCtx) return;
+  fireworksCtx.clearRect(0, 0, fireworksCanvas.width, fireworksCanvas.height);
+  fireworksCtx.globalCompositeOperation = 'lighter';
+  for (let i = fireworksParticles.length - 1; i >= 0; i--) {
+    const p = fireworksParticles[i];
+    p.x += p.vx;
+    p.y += p.vy;
+    p.vy += 0.045;
+    p.vx *= 0.99;
+    p.vy *= 0.99;
+    p.alpha -= 0.012;
+    if (p.alpha <= 0) { fireworksParticles.splice(i, 1); continue; }
+    fireworksCtx.beginPath();
+    fireworksCtx.fillStyle = p.color;
+    fireworksCtx.globalAlpha = Math.max(p.alpha, 0);
+    fireworksCtx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
+    fireworksCtx.fill();
+  }
+  fireworksCtx.globalAlpha = 1;
+  fireworksCtx.globalCompositeOperation = 'source-over';
+
+  if (fireworksActive || fireworksParticles.length) {
+    fireworksAnimId = requestAnimationFrame(fireworksTick);
+  } else {
+    fireworksAnimId = null;
+  }
+}
+
+function startFireworks() {
+  if (!fireworksCanvas) initFireworksCanvas();
+  resizeFireworksCanvas();
+  fireworksActive = true;
+  let launches = 0;
+  const maxLaunches = 18;
+  if (fireworksLaunchInterval) clearInterval(fireworksLaunchInterval);
+  fireworksLaunchInterval = setInterval(() => {
+    if (!fireworksActive || launches >= maxLaunches) {
+      clearInterval(fireworksLaunchInterval);
+      return;
+    }
+    const x = fireworksCanvas.width * (0.15 + Math.random() * 0.7);
+    const y = fireworksCanvas.height * (0.15 + Math.random() * 0.35);
+    createBurst(x, y);
+    launches++;
+  }, 350);
+  if (!fireworksAnimId) fireworksTick();
+  if (fireworksStopTimeout) clearTimeout(fireworksStopTimeout);
+  fireworksStopTimeout = setTimeout(() => { fireworksActive = false; }, 350 * maxLaunches + 500);
+}
+
+function stopFireworks() {
+  fireworksActive = false;
+  if (fireworksLaunchInterval) clearInterval(fireworksLaunchInterval);
+  if (fireworksStopTimeout) clearTimeout(fireworksStopTimeout);
+  fireworksParticles = [];
+  if (fireworksCtx && fireworksCanvas) fireworksCtx.clearRect(0, 0, fireworksCanvas.width, fireworksCanvas.height);
+}
+
 function newGame() {
   const diffKey = document.getElementById('difficulty').value;
   const diff = DIFFICULTIES[diffKey];
@@ -263,6 +371,7 @@ function newGame() {
   buildEmptyGrid();
   document.getElementById('minesLeft').textContent = mineCount;
   setMsg('Révèle une case pour commencer.');
+  stopFireworks();
   render();
 }
 
@@ -336,6 +445,7 @@ function checkWin() {
     gameOver = true;
     stopTimer();
     setMsg('🎉 Terrain déminé ! Bien joué.');
+    startFireworks();
     for (let r = 0; r < rows; r++) {
       for (let c = 0; c < cols; c++) {
         if (grid[r][c].mine) grid[r][c].flagged = true;
